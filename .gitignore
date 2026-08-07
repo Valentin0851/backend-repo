@@ -1,0 +1,6 @@
+.env
+.idea/
+.vscode/
+coverage.out
+*.log
+bin/

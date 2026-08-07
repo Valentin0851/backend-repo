@@ -1,0 +1,3 @@
+ALTER TABLE recaps
+    DROP COLUMN IF EXISTS cards,
+    DROP COLUMN IF EXISTS summary;

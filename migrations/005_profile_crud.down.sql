@@ -1,0 +1,5 @@
+ALTER TABLE users
+    DROP COLUMN IF EXISTS updated_at,
+    DROP COLUMN IF EXISTS viewed_ads,
+    DROP COLUMN IF EXISTS own_ads,
+    DROP COLUMN IF EXISTS likes;

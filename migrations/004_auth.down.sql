@@ -1,0 +1,4 @@
+DROP TABLE IF EXISTS sessions;
+DROP INDEX IF EXISTS users_account_id_idx;
+ALTER TABLE users DROP COLUMN IF EXISTS account_id;
+DROP TABLE IF EXISTS accounts;
