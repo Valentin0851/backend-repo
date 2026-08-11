@@ -76,9 +76,9 @@ func (r *AuthRepository) GetAccountByLogin(ctx context.Context, login string) (*
 	var account domain.Account
 	var passwordHash string
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, login, password_hash, created_at FROM accounts WHERE login = $1`,
+		`SELECT id, login, password_hash, is_admin, created_at FROM accounts WHERE login = $1`,
 		login,
-	).Scan(&account.ID, &account.Login, &passwordHash, &account.CreatedAt)
+	).Scan(&account.ID, &account.Login, &passwordHash, &account.IsAdmin, &account.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, "", apperrors.ErrNotFound
 	}
@@ -123,7 +123,7 @@ func (r *AuthRepository) GetAccountBySessionHash(
 	now time.Time,
 ) (*domain.Account, error) {
 	const query = `
-		SELECT accounts.id, accounts.login, accounts.created_at
+		SELECT accounts.id, accounts.login, accounts.is_admin, accounts.created_at
 		FROM sessions
 		JOIN accounts ON accounts.id = sessions.account_id
 		WHERE sessions.token_hash = $1 AND sessions.expires_at > $2`
@@ -131,6 +131,7 @@ func (r *AuthRepository) GetAccountBySessionHash(
 	if err := r.pool.QueryRow(ctx, query, tokenHash, now).Scan(
 		&account.ID,
 		&account.Login,
+		&account.IsAdmin,
 		&account.CreatedAt,
 	); errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperrors.ErrNotFound

@@ -1,149 +1,208 @@
-# Avito Recap — Backend Data Layer
+# Avito Recap — Backend Engineering Portfolio
 
 Портфолио-репозиторий с моей зоной ответственности в командном проекте
 [GoOffer Hackathon Avito](https://github.com/NikName2021/GoOffer_HackathonAvito).
 
-Здесь выделен Backend 2: PostgreSQL, Redis, миграции, репозитории и обеспечение
-целостности данных. Frontend и HTTP delivery-слой исходного проекта намеренно
-не включены.
+Моя роль начиналась как **Backend 2 — Data Layer**: PostgreSQL, Redis,
+миграции, репозитории и целостность данных. По мере развития проекта зона
+ответственности расширилась: я добавил наблюдаемость слоя данных и разработал
+backend-конструктор динамических recap-карточек для администратора.
 
-## Моя зона ответственности
+Репозиторий содержит мою реализацию и минимальные доменные/архитектурные
+контракты, необходимые для её сборки и демонстрации. Frontend и посторонние
+части командного приложения сюда не переносились.
 
-- проектирование и развитие схемы PostgreSQL;
-- SQL-миграции `up/down` и тестовые данные;
-- реализация repository adapters через `pgx/v5`;
-- пул соединений PostgreSQL;
-- UPSERT итогов года по `(user_id, year)`;
-- Redis-кэш для готовых recap;
-- транзакционная регистрация аккаунта и первой сессии;
-- преобразование ошибок PostgreSQL в доменные ошибки;
-- интеграционные и unit-тесты слоя данных;
-- Docker-инфраструктура PostgreSQL и Redis.
+## Мой вклад
 
-## Что реализовано
+### 1. Надёжный слой хранения
 
-### PostgreSQL
+- спроектировал и развивал схему PostgreSQL;
+- написал версионируемые SQL-миграции `up/down`;
+- реализовал PostgreSQL adapters через `pgx/v5`;
+- добавил пул соединений `pgxpool`;
+- реализовал CRUD профилей с изоляцией по `account_id`;
+- добавил UPSERT итогов года по `(user_id, year)`;
+- преобразовал ошибки PostgreSQL в доменные ошибки.
 
-Репозитории:
+### 2. Транзакционная регистрация
 
-- `UserRepository` — CRUD профилей с изоляцией по `account_id`;
-- `ActionRepository` — выборка действий пользователя за год;
-- `RecapRepository` — сохранение и чтение итогов года;
-- `AuthRepository` — аккаунты и серверные сессии.
-
-Для итогов года используется атомарный UPSERT:
-
-```sql
-ON CONFLICT (user_id, year) DO UPDATE
-```
-
-Это позволяет безопасно повторно генерировать recap без дублирования строк.
-
-### Транзакции
-
-Создание аккаунта и первой сессии выполняется в одной транзакции:
+Создание аккаунта и первой серверной сессии выполняется атомарно:
 
 ```text
 BEGIN
-  INSERT accounts
-  INSERT sessions
+  INSERT account
+  INSERT session
 COMMIT
 ```
 
-Если сессия не создаётся, выполняется `ROLLBACK`, поэтому в базе не остаётся
-аккаунт без рабочей сессии.
+При ошибке создания сессии происходит `ROLLBACK`. В базе не остаётся аккаунт,
+в который невозможно войти.
 
-Одиночные `INSERT`, `UPDATE`, `DELETE` и UPSERT дополнительно в транзакции не
-оборачиваются: один SQL statement уже атомарен в PostgreSQL.
+### 3. Redis-кэш с graceful degradation
 
-### Redis
-
-Для recap реализован read-through/write-through cache:
+Для готовых recap реализован read-through/write-through decorator:
 
 ```text
-GET recap:
-  Redis hit  -> вернуть значение
-  Redis miss -> PostgreSQL -> записать в Redis -> вернуть значение
+READ:
+  Redis hit  -> вернуть recap
+  Redis miss -> PostgreSQL -> Redis -> вернуть recap
 
-SAVE recap:
-  PostgreSQL -> обновить Redis
+WRITE:
+  PostgreSQL -> Redis
 ```
 
-- TTL: 24 часа;
 - ключ: `recap:v1:{user_id}:{year}`;
+- TTL: 24 часа;
 - PostgreSQL остаётся источником истины;
-- при недоступности Redis запрос обслуживается через PostgreSQL;
-- повреждённая запись кэша удаляется и восстанавливается из БД.
+- ошибка Redis не ломает пользовательский запрос;
+- повреждённая cache-запись удаляется и восстанавливается из PostgreSQL.
 
-### Миграции
+### 4. Метрики PostgreSQL и Redis
 
-Миграции встроены в Go-бинарник через `embed.FS` и применяются в
-лексикографическом порядке. Каждая миграция выполняется:
+Я добавил Prometheus collectors для контроля состояния инфраструктуры:
 
-- под PostgreSQL advisory lock;
-- в отдельной транзакции;
-- с записью версии в `schema_migrations`.
+**PostgreSQL pool**
 
-Схема включает профили, категории, действия, recap, аккаунты, сессии и данные
-для расширенной аналитики.
+- acquired, idle, total и max connections;
+- количество попыток получения соединения;
+- время ожидания соединений;
+- отменённые acquire-операции;
+- количество созданных соединений.
+
+**Redis recap cache**
+
+- cache hit;
+- cache miss;
+- ошибки `get`, `set` и `delete`.
+
+Метрики позволяют увидеть деградацию кэша, нехватку соединений и рост времени
+ожидания до того, как проблема станет массовой пользовательской ошибкой.
+
+### 5. Admin Card Definition Builder
+
+Я разработал backend-конструктор, позволяющий администратору создавать новые
+виды recap-карточек без изменения frontend-кода.
+
+Администратор задаёт:
+
+- внутреннее название и пользовательский заголовок;
+- глобальную область действия или конкретный профиль;
+- статистику: просмотры, избранное, покупки, продажи, контакты и другие;
+- анализ: итог, среднее за месяц или максимальное значение месяца;
+- условие показа: `always`, `gt`, `gte`, `lt`, `lte`, `eq`;
+- оформление: layout, theme, icon и суффикс значения;
+- порядок, доступность и возможность публикации карточки.
+
+Доступные endpoint:
+
+```text
+GET    /api/admin/card-definitions/options
+GET    /api/admin/card-definitions
+POST   /api/admin/card-definitions
+DELETE /api/admin/card-definitions/{id}
+```
+
+Все admin endpoint защищены сессией и проверкой `is_admin`. Новые аккаунты не
+получают административные права автоматически.
+
+Правила используют фиксированный allowlist метрик и операций. Администратор не
+может передать произвольный SQL или выполнить код на сервере.
+
+При генерации recap:
+
+1. backend загружает активные определения;
+2. вычисляет выбранную статистику;
+3. применяет способ анализа и условие;
+4. формирует обычный `RecapCard`;
+5. сохраняет результат вместе с recap.
+
+Карточки остаются совместимыми с существующим frontend-контрактом. Обзор и
+финальная карточка сохраняются, а общий набор ограничен девятью слайдами.
+
+## Почему эта часть важна
+
+Мой вклад закрывает три критических свойства продукта:
+
+1. **Сохранность данных.** Итоги, профили и сессии хранятся атомарно и
+   предсказуемо. Без этого генерация recap не могла бы безопасно повторяться.
+2. **Доступность.** Redis ускоряет чтение, но не становится единой точкой
+   отказа: при его недоступности сервис продолжает работать через PostgreSQL.
+3. **Управляемость продукта.** Метрики показывают состояние data layer, а
+   конструктор карточек превращает жёстко заданный набор слайдов в управляемый
+   механизм продуктовых сценариев.
+
+Таким образом, работа Backend 2 оказалась не вспомогательной обвязкой, а
+фундаментом для авторизации, генерации итогов, производительности,
+диагностики и дальнейшего развития контента.
 
 ## Архитектура
 
 ```text
-Use cases
-    |
-    v
-Repository ports
-    |
-    +--> PostgreSQL adapters --> PostgreSQL
-    |
-    +--> CachedRecapRepository --> Redis
-                 |
-                 +-------------> PostgreSQL fallback
+HTTP admin API
+      |
+      v
+Card Definition Service ---> Card Definition Repository ---> PostgreSQL
+      |
+      v
+Generator ---> ProfileMetrics ---> Configured RecapCard
+
+Recap Repository Port
+      |
+      v
+CachedRecapRepository ---> Redis
+      |
+      +------------------> PostgreSQL source of truth
+
+pgxpool.Stat + cache events ---> Prometheus collectors
 ```
 
-Репозитории зависят от доменных контрактов, а бизнес-логика не зависит от
-конкретной базы данных.
+Слои связаны через интерфейсы портов: use cases не зависят от конкретной базы
+данных или Redis-клиента.
 
 ## Структура
 
 ```text
 internal/
-  config/                 конфигурация PostgreSQL и Redis
-  domain/                 доменные структуры, необходимые для контрактов
+  config/                    конфигурация PostgreSQL и Redis
+  delivery/
+    handlers/                admin API конструктора карточек
+    middleware/              authentication и RequireAdmin
+  domain/                    account, recap и card definition
+  observability/             Prometheus-метрики data layer
   repository/
-    postgres/             PostgreSQL adapters
-    redis/                Redis cache и cached repository decorator
+    postgres/                PostgreSQL adapters
+    redis/                   fail-open recap cache
   usecase/
-    ports/                интерфейсы репозиториев
-    auth/                 сценарий регистрации с атомарной записью
-migrations/               SQL up/down и встроенный migration runner
-pkg/errors/               доменные ошибки
+    auth/                    транзакционная регистрация
+    carddefinition/          валидация и управление шаблонами
+    generator/               расчёт и вставка динамических карточек
+    ports/                   repository interfaces
+migrations/                  схема и migration runner
+tests/unit/                  тесты генератора карточек
+pkg/errors/                  доменные ошибки
 ```
 
-## Локальный запуск инфраструктуры
+## Подтверждение вклада
+
+Основные изменения в командном репозитории:
+
+- [`7b4ea02`](https://github.com/NikName2021/GoOffer_HackathonAvito/commit/7b4ea02) —
+  PostgreSQL, миграции и Redis data layer;
+- [`888d1b6`](https://github.com/NikName2021/GoOffer_HackathonAvito/commit/888d1b6) —
+  метрики PostgreSQL pool и Redis cache;
+- [`949c344`](https://github.com/NikName2021/GoOffer_HackathonAvito/commit/949c344) —
+  admin card definition builder.
+
+## Локальная проверка
 
 ```bash
 cp .env.example .env
 docker compose up -d
-```
-
-Проверка:
-
-```bash
-docker compose ps
-docker compose exec postgres pg_isready -U result_year -d result_year
-docker compose exec redis redis-cli ping
-```
-
-## Тесты
-
-```bash
 go test ./...
 go vet ./...
 ```
 
-Для интеграционного теста транзакции:
+Интеграционный тест транзакции:
 
 ```bash
 DB_HOST=localhost \
@@ -161,11 +220,17 @@ go test ./internal/repository/postgres -run Transaction -v
 - Redis 8
 - `pgx/v5`, `pgxpool`
 - `go-redis/v9`
+- Prometheus client
 - Docker Compose
 
 ## Командный контекст
 
-Этот репозиторий является выделенной частью командного проекта. Доменные модели
-и repository ports включены как необходимые контракты для сборки и демонстрации
-слоя данных. Мой основной вклад — содержимое `repository/`, миграции,
-транзакционная целостность, Redis-кэш и инфраструктура хранения данных.
+Это выделенная часть командного проекта. Доменные модели, repository ports,
+базовый генератор встроенных карточек и HTTP helpers включены как необходимый
+контекст для компиляции авторских изменений.
+
+В конструкторе моя реализация сосредоточена в `card_definition.go`,
+`usecase/carddefinition/`, `configured_cards.go`, admin handler, middleware и
+миграции. Основной вклад репозитория — PostgreSQL/Redis adapters,
+транзакционная целостность, инфраструктурные метрики и backend-конструктор
+recap-карточек.

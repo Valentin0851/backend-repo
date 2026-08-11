@@ -82,6 +82,28 @@ func (c *fakeCache) Delete(_ context.Context, key string) error {
 	return nil
 }
 
+type fakeRecapCacheMetrics struct {
+	hits   int
+	misses int
+	errors map[string]int
+}
+
+func newFakeRecapCacheMetrics() *fakeRecapCacheMetrics {
+	return &fakeRecapCacheMetrics{errors: make(map[string]int)}
+}
+
+func (m *fakeRecapCacheMetrics) Hit() {
+	m.hits++
+}
+
+func (m *fakeRecapCacheMetrics) Miss() {
+	m.misses++
+}
+
+func (m *fakeRecapCacheMetrics) Error(operation string) {
+	m.errors[operation]++
+}
+
 func TestCachedRecapRepositoryReadsThroughCache(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
@@ -91,8 +113,9 @@ func TestCachedRecapRepositoryReadsThroughCache(t *testing.T) {
 	if err := cache.Set(ctx, recapCacheKey(userID, 2026), cached, RecapTTL); err != nil {
 		t.Fatalf("prime cache: %v", err)
 	}
+	metrics := newFakeRecapCacheMetrics()
 
-	repository := NewCachedRecapRepository(source, cache, nil)
+	repository := NewCachedRecapRepository(source, cache, nil, metrics)
 	recap, err := repository.GetByUserAndYear(ctx, userID, 2026)
 	if err != nil {
 		t.Fatalf("get recap: %v", err)
@@ -103,6 +126,9 @@ func TestCachedRecapRepositoryReadsThroughCache(t *testing.T) {
 	if source.getCalls != 0 {
 		t.Fatalf("source get calls = %d, want 0 on cache hit", source.getCalls)
 	}
+	if metrics.hits != 1 || metrics.misses != 0 {
+		t.Fatalf("cache metrics hits/misses = %d/%d, want 1/0", metrics.hits, metrics.misses)
+	}
 }
 
 func TestCachedRecapRepositoryPopulatesCacheOnMiss(t *testing.T) {
@@ -111,8 +137,9 @@ func TestCachedRecapRepositoryPopulatesCacheOnMiss(t *testing.T) {
 	stored := &domain.Recap{ID: uuid.New(), UserID: userID, Year: 2026, TotalSales: 7}
 	source := &fakeRecapSource{recap: stored}
 	cache := newFakeCache()
+	metrics := newFakeRecapCacheMetrics()
 
-	repository := NewCachedRecapRepository(source, cache, nil)
+	repository := NewCachedRecapRepository(source, cache, nil, metrics)
 	recap, err := repository.GetByUserAndYear(ctx, userID, 2026)
 	if err != nil {
 		t.Fatalf("get recap: %v", err)
@@ -122,6 +149,9 @@ func TestCachedRecapRepositoryPopulatesCacheOnMiss(t *testing.T) {
 	}
 	if _, ok := cache.values[recapCacheKey(userID, 2026)]; !ok {
 		t.Fatal("cache was not populated after source read")
+	}
+	if metrics.hits != 0 || metrics.misses != 1 {
+		t.Fatalf("cache metrics hits/misses = %d/%d, want 0/1", metrics.hits, metrics.misses)
 	}
 }
 
@@ -151,14 +181,18 @@ func TestCachedRecapRepositoryFailsOpenOnCacheError(t *testing.T) {
 	cache := newFakeCache()
 	cache.getErr = errors.New("redis unavailable")
 	cache.setErr = errors.New("redis unavailable")
+	metrics := newFakeRecapCacheMetrics()
 
-	repository := NewCachedRecapRepository(source, cache, nil)
+	repository := NewCachedRecapRepository(source, cache, nil, metrics)
 	recap, err := repository.GetByUserAndYear(ctx, userID, 2026)
 	if err != nil {
 		t.Fatalf("cache failure must not fail read: %v", err)
 	}
 	if recap.ID != stored.ID || source.getCalls != 1 {
 		t.Fatalf("recap/source calls = %#v/%d, want PostgreSQL fallback", recap, source.getCalls)
+	}
+	if metrics.errors["get"] != 1 || metrics.errors["set"] != 1 {
+		t.Fatalf("cache error metrics = %#v, want one get and one set error", metrics.errors)
 	}
 
 	source.saveErr = errors.New("postgres unavailable")

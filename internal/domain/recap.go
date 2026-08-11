@@ -66,6 +66,39 @@ type RecapSummary struct {
 	Combined    CombinedRecapSummary `json:"combined"`
 }
 
+type RecapChartSeries struct {
+	Key    string `json:"key"`
+	Label  string `json:"label"`
+	Color  string `json:"color"`
+	Values []int  `json:"values"`
+}
+
+type RecapChartSegment struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Color string `json:"color"`
+	Value int    `json:"value"`
+}
+
+type RecapChartHighlight struct {
+	Index int    `json:"index"`
+	Label string `json:"label"`
+	Value int    `json:"value"`
+}
+
+// RecapVisualization is a versioned, backend-driven chart specification.
+// Cartesian charts use labels and series; part-to-whole charts use segments.
+type RecapVisualization struct {
+	Version   int                  `json:"version"`
+	Type      string               `json:"type"`
+	Unit      string               `json:"unit,omitempty"`
+	Stacked   bool                 `json:"stacked,omitempty"`
+	Labels    []string             `json:"labels,omitempty"`
+	Series    []RecapChartSeries   `json:"series,omitempty"`
+	Segments  []RecapChartSegment  `json:"segments,omitempty"`
+	Highlight *RecapChartHighlight `json:"highlight,omitempty"`
+}
+
 type RecapCardPresentation struct {
 	Layout string `json:"layout"`
 	Theme  string `json:"theme"`
@@ -81,17 +114,18 @@ type RecapCardCTA struct {
 // RecapCard contains ready-to-render copy and presentation hints. The frontend
 // only needs to render the ordered slice and execute the semantic CTA action.
 type RecapCard struct {
-	ID           string                `json:"id"`
-	Kind         string                `json:"kind"`
-	Eyebrow      string                `json:"eyebrow,omitempty"`
-	Title        string                `json:"title"`
-	Description  string                `json:"description"`
-	Value        string                `json:"value,omitempty"`
-	ImageURL     string                `json:"image_url,omitempty"`
-	Shareable    bool                  `json:"shareable"`
-	Reason       string                `json:"reason"`
-	Presentation RecapCardPresentation `json:"presentation"`
-	CTA          *RecapCardCTA         `json:"cta,omitempty"`
+	ID            string                `json:"id"`
+	Kind          string                `json:"kind"`
+	Eyebrow       string                `json:"eyebrow,omitempty"`
+	Title         string                `json:"title"`
+	Description   string                `json:"description"`
+	Value         string                `json:"value,omitempty"`
+	ImageURL      string                `json:"image_url,omitempty"`
+	Shareable     bool                  `json:"shareable"`
+	Reason        string                `json:"reason"`
+	Presentation  RecapCardPresentation `json:"presentation"`
+	Visualization *RecapVisualization   `json:"visualization,omitempty"`
+	CTA           *RecapCardCTA         `json:"cta,omitempty"`
 }
 
 type Recap struct {
