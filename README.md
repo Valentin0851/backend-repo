@@ -1,7 +1,7 @@
 # Avito Recap — Backend Engineering Portfolio
 
-Портфолио-репозиторий с моей зоной ответственности в командном проекте
-[GoOffer Hackathon Avito](https://github.com/NikName2021/GoOffer_HackathonAvito).
+Портфолио-репозиторий с моей зоной ответственности в проекте персональных
+итогов года.
 
 Моя роль начиналась как **Backend 2 — Data Layer**: PostgreSQL, Redis,
 миграции, репозитории и целостность данных. По мере развития проекта зона
@@ -181,17 +181,6 @@ migrations/                  схема и migration runner
 tests/unit/                  тесты генератора карточек
 pkg/errors/                  доменные ошибки
 ```
-
-## Подтверждение вклада
-
-Основные изменения в командном репозитории:
-
-- [`7b4ea02`](https://github.com/NikName2021/GoOffer_HackathonAvito/commit/7b4ea02) —
-  PostgreSQL, миграции и Redis data layer;
-- [`888d1b6`](https://github.com/NikName2021/GoOffer_HackathonAvito/commit/888d1b6) —
-  метрики PostgreSQL pool и Redis cache;
-- [`949c344`](https://github.com/NikName2021/GoOffer_HackathonAvito/commit/949c344) —
-  admin card definition builder.
 
 ## Локальная проверка
 
